@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arquivos</title>
+<style>
+  :root {
+    --bg: #111418; --card: #1b2027; --line: #2a313a; --text: #e8ecf1;
+    --muted: #8b96a5; --accent: #4f9cf9; --danger: #ef5b5b; --ok: #3ecf8e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+  .logo { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+  .logo span { color: var(--accent); }
+  .pasta { color: var(--muted); font-size: 15px; word-break: break-all; }
+  .acoes { margin-left: auto; display: flex; gap: 8px; }
+  button, .btn {
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+    text-decoration: none; display: inline-block;
+  }
+  button.sec { background: var(--line); }
+  button.perigo { background: transparent; color: var(--danger); padding: 6px 8px; }
+  button.link { background: transparent; color: var(--accent); padding: 6px 8px; }
+  button:disabled { opacity: .5; cursor: default; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .titulo { padding: 14px 16px; border-bottom: 1px solid var(--line); font-weight: 600; display: flex; justify-content: space-between; }
+  .titulo small { color: var(--muted); font-weight: 400; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  tr:last-child td { border-bottom: 0; }
+  td.nome a { color: var(--text); text-decoration: none; word-break: break-all; }
+  td.nome a:hover { color: var(--accent); }
+  td.acts { white-space: nowrap; text-align: right; }
+  .vazio { padding: 32px 16px; text-align: center; color: var(--muted); }
+  .drop {
+    border: 2px dashed var(--line); border-radius: 12px; padding: 22px; text-align: center;
+    color: var(--muted); margin-bottom: 16px; transition: .15s;
+  }
+  .drop.on { border-color: var(--accent); color: var(--text); background: #4f9cf910; }
+  .fila { margin-bottom: 16px; font-size: 14px; }
+  .fila div { padding: 4px 0; color: var(--muted); }
+  .fila .ok { color: var(--ok); } .fila .erro { color: var(--danger); }
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--ok); color: #062; padding: 10px 18px; border-radius: 8px;
+    font-weight: 600; opacity: 0; transition: .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .home { max-width: 460px; margin: 10vh auto 0; text-align: center; }
+  .home p { color: var(--muted); line-height: 1.5; }
+  .linha { display: flex; gap: 8px; margin-top: 20px; }
+  .linha input {
+    flex: 1; background: var(--card); border: 1px solid var(--line); color: var(--text);
+    border-radius: 8px; padding: 10px 12px; font-size: 15px;
+  }
+  .aviso { font-size: 13px; color: var(--muted); margin-top: 18px; }
+  @media (max-width: 600px) {
+    .col-tipo { display: none; }
+    th, td { padding: 10px 10px; }
+    .acoes { margin-left: 0; width: 100%; }
+    .acoes button { flex: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<div class="toast" id="toast"></div>
+<input type="file" id="seletor" multiple hidden>
+
+<script type="module">
+// =====================================================================
+//  CONFIGURAÇÃO — troque só estas duas linhas (veja o passo a passo)
+// =====================================================================
+const SUPABASE_URL = "https://iwvljjpehjrwulkojwmp.supabase.co";      // ex: https://abcdxyz.supabase.co
+const SUPABASE_KEY = "sb_publishable_qPkaYQqBdQsH5SO3jE8mOQ_PDPmjt3e";  // ex: sb_publishable_... (ou a chave "anon")
+// =====================================================================
+
+const BUCKET = "arquivos";
+const LIMITE_MB = 50; // limite do plano grátis do Supabase
+
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const app = document.getElementById("app");
+const seletor = document.getElementById("seletor");
+
+// ---------- descobre a "pasta" pelo endereço ----------
+// Em usuario.github.io/repositorio/pasta  -> ignora o nome do repositório.
+// Em domínio próprio (ex: arquivos.shino.com.br/pasta) -> usa o primeiro trecho.
+function lerPasta() {
+  let partes = location.pathname.split("/").filter(Boolean);
+  if (location.hostname.endsWith("github.io")) partes = partes.slice(1);
+  partes = partes.filter(p => p !== "index.html" && p !== "404.html");
+  return limparPasta(decodeURIComponent(partes[0] || ""));
+}
+function basePath() {
+  if (location.hostname.endsWith("github.io")) {
+    const repo = location.pathname.split("/").filter(Boolean)[0];
+    return repo ? `/${repo}/` : "/";
+  }
+  return "/";
+}
+function limparPasta(t) {
+  return t.normalize("NFD").replace(/[̀-ͯ]/g, "")
+          .toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+}
+function limparArquivo(t) {
+  const semAcento = t.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return semAcento.replace(/\s+/g, "_").replace(/[^A-Za-z0-9._-]/g, "").replace(/^\.+/, "") || "arquivo";
+}
+function tamanho(b) {
+  if (b == null) return "-";
+  if (b < 1024) return b + " B";
+  if (b < 1024 ** 2) return (b / 1024).toFixed(1) + " KB";
+  if (b < 1024 ** 3) return (b / 1024 ** 2).toFixed(1) + " MB";
+  return (b / 1024 ** 3).toFixed(2) + " GB";
+}
+function tipo(nome) {
+  const i = nome.lastIndexOf(".");
+  return i > 0 ? nome.slice(i + 1).toUpperCase() : "-";
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function toast(msg, cor) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.style.background = cor === "erro" ? "var(--danger)" : "var(--ok)";
+  t.style.color = cor === "erro" ? "#fff" : "#062";
+  t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2200);
+}
+async function copiar(texto) {
+  try { await navigator.clipboard.writeText(texto); toast("Copiado!"); }
+  catch { prompt("Copie o texto abaixo:", texto); }
+}
+function linkPublico(pasta, nome) {
+  return supabase.storage.from(BUCKET).getPublicUrl(`${pasta}/${nome}`).data.publicUrl;
+}
+
+// ---------- tela inicial (sem pasta) ----------
+function telaInicial() {
+  const sugestao = Math.random().toString(36).slice(2, 8) + "-" + Math.random().toString(36).slice(2, 6);
+  app.innerHTML = `
+    <div class="home">
+      <div class="logo">Arqui<span>vos</span></div>
+      <p>Escolha um nome de pasta. Quem tiver o link da pasta pode ver, baixar e enviar arquivos nela.</p>
+      <div class="linha">
+        <input id="nome" placeholder="nome-da-pasta" value="${sugestao}" autocomplete="off">
+        <button id="ir">Abrir</button>
+      </div>
+      <p class="aviso">Dica: use nomes difíceis de adivinhar. Pastas não têm senha.<br>Limite de ${LIMITE_MB} MB por arquivo.</p>
+    </div>`;
+  const ir = () => {
+    const p = limparPasta(document.getElementById("nome").value);
+    if (p) location.href = basePath() + p;
+  };
+  document.getElementById("ir").onclick = ir;
+  document.getElementById("nome").onkeydown = e => { if (e.key === "Enter") ir(); };
+}
+
+// ---------- tela da pasta ----------
+let pasta = "";
+let arquivos = [];
+
+function telaPasta() {
+  app.innerHTML = `
+    <header>
+      <a href="${basePath()}" class="logo" style="text-decoration:none;color:inherit">Arqui<span>vos</span></a>
+      <div class="pasta">/ ${esc(pasta)}</div>
+      <div class="acoes">
+        <button class="sec" id="copiarTudo">Copiar todos</button>
+        <button id="adicionar">Adicionar arquivo</button>
+      </div>
+    </header>
+    <div class="drop" id="drop">Arraste arquivos aqui ou clique em <b>Adicionar arquivo</b> (até ${LIMITE_MB} MB cada)</div>
+    <div class="fila" id="fila"></div>
+    <div class="card">
+      <div class="titulo">Lista de arquivos <small id="total"></small></div>
+      <div id="lista"><div class="vazio">Carregando…</div></div>
+    </div>`;
+
+  document.getElementById("adicionar").onclick = () => seletor.click();
+  document.getElementById("copiarTudo").onclick = () => {
+    if (!arquivos.length) return toast("A pasta está vazia", "erro");
+    copiar(arquivos.map(a => linkPublico(pasta, a.name)).join("\n"));
+  };
+  seletor.onchange = () => { enviar([...seletor.files]); seletor.value = ""; };
+
+  const drop = document.getElementById("drop");
+  ["dragenter", "dragover"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("on"); }));
+  ["dragleave", "drop"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("on"); }));
+  document.addEventListener("drop", e => { if (e.dataTransfer?.files?.length) enviar([...e.dataTransfer.files]); });
+
+  carregar();
+}
+
+async function carregar() {
+  const { data, error } = await supabase.storage.from(BUCKET).list(pasta, {
+    limit: 1000, sortBy: { column: "created_at", order: "desc" },
+  });
+  const lista = document.getElementById("lista");
+  if (error) {
+    lista.innerHTML = `<div class="vazio">Erro ao carregar: ${esc(error.message)}</div>`;
+    return;
+  }
+  arquivos = (data || []).filter(a => a.id && a.name !== ".emptyFolderPlaceholder");
+  const soma = arquivos.reduce((s, a) => s + (a.metadata?.size || 0), 0);
+  document.getElementById("total").textContent = arquivos.length ? `${arquivos.length} arquivo(s) · ${tamanho(soma)}` : "";
+
+  if (!arquivos.length) {
+    lista.innerHTML = `<div class="vazio">Nenhum arquivo ainda.</div>`;
+    return;
+  }
+  lista.innerHTML = `
+    <table>
+      <thead><tr><th>Nome</th><th class="col-tipo">Tipo</th><th>Tamanho</th><th style="text-align:right">Ações</th></tr></thead>
+      <tbody>${arquivos.map((a, i) => `
+        <tr>
+          <td class="nome"><a href="${esc(linkPublico(pasta, a.name))}" target="_blank" rel="noopener">${esc(a.name)}</a></td>
+          <td class="col-tipo">${esc(tipo(a.name))}</td>
+          <td>${tamanho(a.metadata?.size)}</td>
+          <td class="acts">
+            <button class="link" data-copiar="${i}">Copiar link</button>
+            <button class="link" data-baixar="${i}">Baixar</button>
+            <button class="perigo" data-apagar="${i}">Apagar</button>
+          </td>
+        </tr>`).join("")}
+      </tbody>
+    </table>`;
+
+  lista.querySelectorAll("[data-copiar]").forEach(b =>
+    b.onclick = () => copiar(linkPublico(pasta, arquivos[b.dataset.copiar].name)));
+  lista.querySelectorAll("[data-baixar]").forEach(b =>
+    b.onclick = () => {
+      const nome = arquivos[b.dataset.baixar].name;
+      const url = supabase.storage.from(BUCKET).getPublicUrl(`${pasta}/${nome}`, { download: nome }).data.publicUrl;
+      location.href = url;
+    });
+  lista.querySelectorAll("[data-apagar]").forEach(b =>
+    b.onclick = async () => {
+      const nome = arquivos[b.dataset.apagar].name;
+      if (!confirm(`Apagar "${nome}"?`)) return;
+      b.disabled = true;
+      const { error } = await supabase.storage.from(BUCKET).remove([`${pasta}/${nome}`]);
+      if (error) { toast("Erro ao apagar: " + error.message, "erro"); b.disabled = false; return; }
+      toast("Arquivo apagado");
+      carregar();
+    });
+}
+
+function nomeLivre(nome) {
+  const existentes = new Set(arquivos.map(a => a.name));
+  if (!existentes.has(nome)) return nome;
+  const i = nome.lastIndexOf(".");
+  const base = i > 0 ? nome.slice(0, i) : nome;
+  const ext = i > 0 ? nome.slice(i) : "";
+  let n = 2;
+  while (existentes.has(`${base}_${n}${ext}`)) n++;
+  return `${base}_${n}${ext}`;
+}
+
+async function enviar(lista) {
+  const fila = document.getElementById("fila");
+  for (const arq of lista) {
+    const linha = document.createElement("div");
+    fila.prepend(linha);
+    if (arq.size > LIMITE_MB * 1024 * 1024) {
+      linha.className = "erro";
+      linha.textContent = `✗ ${arq.name}: maior que ${LIMITE_MB} MB`;
+      continue;
+    }
+    const nome = nomeLivre(limparArquivo(arq.name));
+    linha.textContent = `⏳ Enviando ${nome} (${tamanho(arq.size)})…`;
+    const { error } = await supabase.storage.from(BUCKET).upload(`${pasta}/${nome}`, arq, {
+      contentType: arq.type || "application/octet-stream", upsert: false,
+    });
+    if (error) {
+      linha.className = "erro";
+      linha.textContent = `✗ ${nome}: ${error.message}`;
+    } else {
+      linha.className = "ok";
+      linha.textContent = `✓ ${nome} enviado`;
+      arquivos.push({ name: nome }); // evita nome repetido no mesmo lote
+    }
+  }
+  await carregar();
+  setTimeout(() => { fila.innerHTML = ""; }, 4000);
+}
+
+// ---------- início ----------
+pasta = lerPasta();
+if (SUPABASE_URL.startsWith("COLE_AQUI")) {
+  app.innerHTML = `<div class="home"><div class="logo">Arqui<span>vos</span></div>
+    <p>Falta configurar: abra o <b>index.html</b> e cole a Project URL e a chave do Supabase nas linhas indicadas no começo do código.</p></div>`;
+} else if (pasta) {
+  document.title = `${pasta} · Arquivos`;
+  telaPasta();
+} else {
+  telaInicial();
+}
+</script>
+</body>
+</html>

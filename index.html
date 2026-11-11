@@ -128,6 +128,10 @@
   .acts { display: flex; gap: 2px; }
   .vazio { padding: 40px 0; text-align: center; color: var(--muted); font-size: 14px; }
 
+  .espaco { margin: 26px 2px 0; font-size: 12.5px; color: var(--muted); display: grid; gap: 8px; }
+  .espaco:empty { display: none; }
+  .medidor { height: 4px; border-radius: 4px; background: var(--soft); overflow: hidden; }
+  .medidor i { display: block; height: 100%; background: var(--muted); border-radius: 4px; }
   /* ---------- tela inicial ---------- */
   .home { min-height: 72dvh; display: flex; flex-direction: column; justify-content: center; max-width: 420px; margin: 0 auto; }
   .home .marca { font-size: 44px; }
@@ -210,20 +214,36 @@
 
 <script type="module">
 // =====================================================================
-//  CONFIGURAÇÃO
+//  CONFIGURAÇÃO — cole aqui o endereço do Apps Script (termina em /exec)
 // =====================================================================
-const SUPABASE_URL = "https://iwvljjpehjrwulkojwmp.supabase.co";
-const SUPABASE_KEY = "sb_publishable_qPkaYQqBdQsH5SO3jE8mOQ_PDPmjt3e";
+const API = "https://script.google.com/macros/s/AKfycbxwtt1pQe2rdhVoCICCAkjjmg_74T2o11zcWHJvv1QtDFlZqbQH24Xm20wxgXejVnXr5A/exec";
 // =====================================================================
 
-const BUCKET = "arquivos";
-const LIMITE_MB = 50; // limite do plano grátis do Supabase
-
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+let LIMITE_ARQUIVO = 500 * 1024 * 1024;   // atualizado pelo servidor
+const PEQUENO = 8 * 1024 * 1024;          // até isso vai numa chamada só
+const PARTE = 8 * 1024 * 1024;            // tamanho de cada parte dos arquivos grandes
 
 const app = document.getElementById("app");
 const seletor = document.getElementById("seletor");
+
+// ---------- comunicação com o Apps Script ----------
+async function api(dados, metodo = "GET") {
+  let resp;
+  try {
+    resp = metodo === "GET"
+      ? await fetch(API + "?" + new URLSearchParams(dados))
+      : await fetch(API, { method: "POST", body: JSON.stringify(dados) }); // text/plain: sem pré-verificação CORS
+  } catch {
+    throw new Error("Sem conexão com o servidor");
+  }
+  let json;
+  try { json = await resp.json(); } catch { throw new Error("Resposta inválida do servidor"); }
+  if (!json.ok) throw new Error(json.erro || "Erro desconhecido");
+  return json;
+}
+const linkVer = id => `https://drive.google.com/file/d/${id}/view`;
+const linkBaixar = id => `https://drive.google.com/uc?export=download&id=${id}`;
+const linkDaPasta = () => location.origin + basePath() + pasta;
 
 // ---------- ícones ----------
 const ic = p => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
@@ -258,7 +278,7 @@ function limparPasta(t) {
   return semAcento(t).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 }
 function limparArquivo(t) {
-  return semAcento(t).replace(/\s+/g, "_").replace(/[^A-Za-z0-9._-]/g, "").replace(/^\.+/, "") || "arquivo";
+  return semAcento(t).replace(/\s+/g, "_").replace(/[^A-Za-z0-9._-]/g, "").replace(/^\.+/, "").slice(0, 150) || "arquivo";
 }
 function tamanho(b) {
   if (b == null) return "";
@@ -288,14 +308,19 @@ function toast(msg, tipo) {
   t.textContent = msg;
   t.classList.toggle("erro", tipo === "erro");
   t.classList.add("show");
-  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2200);
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2600);
 }
 async function copiar(texto, msg = "Copiado") {
   try { await navigator.clipboard.writeText(texto); toast(msg); }
   catch { prompt("Copie o texto abaixo:", texto); }
 }
-function linkPublico(pasta, nome) {
-  return supabase.storage.from(BUCKET).getPublicUrl(`${pasta}/${nome}`).data.publicUrl;
+function paraBase64(blob) {
+  return new Promise((ok, falha) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result).slice(String(r.result).indexOf(",") + 1));
+    r.onerror = () => falha(new Error("Não foi possível ler o arquivo"));
+    r.readAsDataURL(blob);
+  });
 }
 
 // ---------- tela inicial (sem pasta) ----------
@@ -309,7 +334,7 @@ function telaInicial() {
         <input id="nome" placeholder="nome-da-pasta" value="${sugestao}" autocomplete="off" autocapitalize="off" spellcheck="false">
         <button class="b-pri" id="ir">Abrir pasta</button>
       </div>
-      <p class="aviso">Pastas não têm senha: prefira nomes difíceis de adivinhar. Até ${LIMITE_MB} MB por arquivo.</p>
+      <p class="aviso">Pastas não têm senha: prefira nomes difíceis de adivinhar. Até ${Math.round(LIMITE_ARQUIVO / 1024 / 1024)} MB por arquivo.</p>
       <p class="agradece">Agradecimento a um cannabico · <b>@cqcfoda</b></p>
     </div>`;
   const campo = document.getElementById("nome");
@@ -352,13 +377,14 @@ function telaPasta() {
       <b>Arquivos</b>
       <span><span id="total"></span> <button class="b-ico" id="copiarTudo" title="Copiar todos os links" aria-label="Copiar todos os links" style="vertical-align:middle;margin-left:4px">${ICONE.copiar}</button></span>
     </div>
-    <div class="lista" id="lista"><div class="vazio">Carregando…</div></div>`;
+    <div class="lista" id="lista"><div class="vazio">Carregando…</div></div>
+    <div class="espaco" id="espaco"></div>`;
 
   document.getElementById("adicionar").onclick = () => seletor.click();
   document.getElementById("copiarPasta").onclick = () => copiar(location.href, "Link da pasta copiado");
   document.getElementById("copiarTudo").onclick = () => {
     if (!arquivos.length) return toast("A pasta está vazia", "erro");
-    copiar(arquivos.map(a => linkPublico(pasta, a.name)).join("\n"), "Links copiados");
+    copiar(arquivos.map(a => linkVer(a.id)).join("\n"), "Links copiados");
   };
   seletor.onchange = () => { enviar([...seletor.files]); seletor.value = ""; };
 
@@ -391,9 +417,9 @@ function telaPasta() {
     }
     if (!/\.[A-Za-z0-9]{1,8}$/.test(nome)) nome += ".txt";
     const botao = document.getElementById("salvarTexto");
-    botao.disabled = true;
+    botao.disabled = true; botao.textContent = "Salvando…";
     const ok = await enviarTexto(nome, conteudo);
-    botao.disabled = false;
+    botao.disabled = false; botao.textContent = "Salvar texto";
     if (ok) { tNome.value = ""; tConteudo.value = ""; }
   }
   document.getElementById("salvarTexto").onclick = salvar;
@@ -410,22 +436,29 @@ function telaPasta() {
     if (e.dataTransfer.files.length) enviar([...e.dataTransfer.files]);
   });
 
-  carregar();
+  carregar(true);
 }
 
-async function carregar() {
-  const { data, error } = await supabase.storage.from(BUCKET).list(pasta, {
-    limit: 1000, sortBy: { column: "created_at", order: "desc" },
-  });
+async function carregar(registrarAcesso = false) {
   const lista = document.getElementById("lista");
-  if (error) {
-    lista.innerHTML = `<div class="vazio">Erro ao carregar: ${esc(error.message)}</div>`;
+  let r;
+  try {
+    r = await api({ acao: "listar", pasta, registrar: registrarAcesso ? "1" : "0", link: linkDaPasta() });
+  } catch (e) {
+    lista.innerHTML = `<div class="vazio">Erro ao carregar: ${esc(e.message)}</div>`;
     return;
   }
-  arquivos = (data || []).filter(a => a.id && a.name !== ".emptyFolderPlaceholder");
-  const soma = arquivos.reduce((s, a) => s + (a.metadata?.size || 0), 0);
+  arquivos = r.arquivos || [];
+  if (r.limiteArquivo) LIMITE_ARQUIVO = r.limiteArquivo;
+  const soma = arquivos.reduce((s, a) => s + (a.size || 0), 0);
   document.getElementById("total").textContent =
     arquivos.length ? `${arquivos.length} ${arquivos.length === 1 ? "item" : "itens"} · ${tamanho(soma)}` : "";
+  if (r.limite) {
+    const pct = Math.min(100, r.usado / r.limite * 100);
+    document.getElementById("espaco").innerHTML =
+      `<div class="medidor"><i style="width:${pct.toFixed(1)}%"></i></div>
+       <span>Espaço do Shino: ${tamanho(r.usado)} de ${tamanho(r.limite)}</span>`;
+  }
 
   if (!arquivos.length) {
     lista.innerHTML = `<div class="vazio">Nada por aqui ainda.</div>`;
@@ -435,8 +468,8 @@ async function carregar() {
     <div class="item">
       <div class="ext">${esc(extensao(a.name))}</div>
       <div class="info">
-        <a href="${esc(linkPublico(pasta, a.name))}" target="_blank" rel="noopener" title="${esc(a.name)}">${esc(a.name)}</a>
-        <div class="meta">${[tamanho(a.metadata?.size), quando(a.created_at)].filter(Boolean).join(" · ")}</div>
+        <a href="${esc(linkVer(a.id))}" target="_blank" rel="noopener" title="${esc(a.name)}">${esc(a.name)}</a>
+        <div class="meta">${[tamanho(a.size), quando(a.created)].filter(Boolean).join(" · ")}</div>
       </div>
       <div class="acts">
         ${ehTexto(a) ? `<button class="b-ico" data-ver="${i}" title="Ver conteúdo" aria-label="Ver conteúdo">${ICONE.ver}</button>` : ""}
@@ -447,23 +480,23 @@ async function carregar() {
     </div>`).join("");
 
   lista.querySelectorAll("[data-ver]").forEach(b =>
-    b.onclick = () => verTexto(arquivos[b.dataset.ver].name));
+    b.onclick = () => verTexto(arquivos[b.dataset.ver]));
   lista.querySelectorAll("[data-copiar]").forEach(b =>
-    b.onclick = () => copiar(linkPublico(pasta, arquivos[b.dataset.copiar].name), "Link copiado"));
+    b.onclick = () => copiar(linkVer(arquivos[b.dataset.copiar].id), "Link copiado"));
   lista.querySelectorAll("[data-baixar]").forEach(b =>
-    b.onclick = () => {
-      const nome = arquivos[b.dataset.baixar].name;
-      location.href = supabase.storage.from(BUCKET).getPublicUrl(`${pasta}/${nome}`, { download: nome }).data.publicUrl;
-    });
+    b.onclick = () => { location.href = linkBaixar(arquivos[b.dataset.baixar].id); });
   lista.querySelectorAll("[data-apagar]").forEach(b =>
     b.onclick = async () => {
-      const nome = arquivos[b.dataset.apagar].name;
-      if (!confirm(`Apagar "${nome}"?`)) return;
+      const a = arquivos[b.dataset.apagar];
+      if (!confirm(`Apagar "${a.name}"?`)) return;
       b.disabled = true;
-      const { error } = await supabase.storage.from(BUCKET).remove([`${pasta}/${nome}`]);
-      if (error) { toast("Erro ao apagar: " + error.message, "erro"); b.disabled = false; return; }
-      toast("Apagado");
-      carregar();
+      try {
+        await api({ acao: "apagar", id: a.id, pasta }, "POST");
+        toast("Apagado");
+        carregar();
+      } catch (e) {
+        toast("Erro ao apagar: " + e.message, "erro"); b.disabled = false;
+      }
     });
 }
 
@@ -471,7 +504,8 @@ async function carregar() {
 const EXT_TEXTO = new Set(("txt md markdown log csv tsv json xml yml yaml ini cfg conf env " +
   "html htm css js mjs ts jsx tsx py java c h cpp cs go rs php rb lua sh bat ps1 sql kt swift vb gs").split(" "));
 function ehTexto(a) {
-  const mime = a.metadata?.mimetype || "";
+  if ((a.size || 0) > 2 * 1024 * 1024) return false;
+  const mime = a.mime || "";
   if (mime.startsWith("text/") || mime.includes("json") || mime.includes("xml")) return true;
   const i = a.name.lastIndexOf(".");
   return i > 0 && EXT_TEXTO.has(a.name.slice(i + 1).toLowerCase());
@@ -480,34 +514,36 @@ function mimeDoTexto(nome) {
   const ext = nome.slice(nome.lastIndexOf(".") + 1).toLowerCase();
   const m = { html: "text/html", htm: "text/html", css: "text/css", js: "text/javascript",
               json: "application/json", xml: "text/xml", csv: "text/csv", md: "text/markdown" };
-  return (m[ext] || "text/plain") + ";charset=utf-8";
+  return m[ext] || "text/plain";
 }
 
 async function enviarTexto(nomeDigitado, conteudo) {
   const nome = nomeLivre(limparArquivo(nomeDigitado));
-  const blob = new Blob([conteudo], { type: mimeDoTexto(nome) });
-  if (blob.size > LIMITE_MB * 1024 * 1024) { toast(`Texto maior que ${LIMITE_MB} MB`, "erro"); return false; }
-  const { error } = await supabase.storage.from(BUCKET).upload(`${pasta}/${nome}`, blob, {
-    contentType: mimeDoTexto(nome), upsert: false,
-  });
-  if (error) { toast("Erro ao salvar: " + error.message, "erro"); return false; }
+  try {
+    await api({ acao: "texto", pasta, nome, mime: mimeDoTexto(nome), conteudo, link: linkDaPasta() }, "POST");
+  } catch (e) {
+    toast("Erro ao salvar: " + e.message, "erro");
+    return false;
+  }
   toast(`${nome} salvo`);
   await carregar();
   return true;
 }
 
-async function verTexto(nome) {
+async function verTexto(a) {
   const fundo = document.getElementById("fundo");
   const pre = document.getElementById("visorTexto");
-  document.getElementById("visorNome").textContent = nome;
+  document.getElementById("visorNome").textContent = a.name;
   pre.textContent = "Carregando…";
   fundo.hidden = false;
   document.body.style.overflow = "hidden";
-  const { data, error } = await supabase.storage.from(BUCKET).download(`${pasta}/${nome}`);
-  if (error) { pre.textContent = "Erro ao abrir: " + error.message; return; }
-  const texto = await data.text();
-  pre.textContent = texto;
-  document.getElementById("visorCopiar").onclick = () => copiar(texto);
+  try {
+    const { texto } = await api({ acao: "ler", id: a.id });
+    pre.textContent = texto;
+    document.getElementById("visorCopiar").onclick = () => copiar(texto);
+  } catch (e) {
+    pre.textContent = "Erro ao abrir: " + e.message;
+  }
 }
 function fecharVisor() { document.getElementById("fundo").hidden = true; document.body.style.overflow = ""; }
 document.getElementById("visorFechar").onclick = fecharVisor;
@@ -526,37 +562,66 @@ function nomeLivre(nome) {
   return `${base}_${n}${ext}`;
 }
 
+async function enviarUm(arq, nome, aoProgredir) {
+  const mime = arq.type || "application/octet-stream";
+  const link = linkDaPasta();
+  if (arq.size <= PEQUENO) {
+    const dados = await paraBase64(arq);
+    aoProgredir(50);
+    await api({ acao: "upload", pasta, nome, mime, dados, link }, "POST");
+    return;
+  }
+  const { sessao } = await api({ acao: "iniciar", pasta, nome, mime, tamanho: arq.size }, "POST");
+  for (let inicio = 0; inicio < arq.size; inicio += PARTE) {
+    const pedaco = arq.slice(inicio, Math.min(inicio + PARTE, arq.size));
+    const dados = await paraBase64(pedaco);
+    let tentativas = 0;
+    for (;;) {
+      try {
+        await api({ acao: "parte", pasta, sessao, inicio, total: arq.size, dados, link }, "POST");
+        break;
+      } catch (e) {
+        if (++tentativas >= 3) throw e;
+        await new Promise(r => setTimeout(r, 1500 * tentativas));
+      }
+    }
+    aoProgredir(Math.round(Math.min(inicio + PARTE, arq.size) / arq.size * 100));
+  }
+}
+
 async function enviar(lista) {
   const fila = document.getElementById("fila");
   for (const arq of lista) {
     const linha = document.createElement("div");
     fila.prepend(linha);
-    if (arq.size > LIMITE_MB * 1024 * 1024) {
+    if (arq.size > LIMITE_ARQUIVO) {
       linha.className = "erro";
-      linha.textContent = `${arq.name} — maior que ${LIMITE_MB} MB`;
+      linha.textContent = `${arq.name} — maior que ${Math.round(LIMITE_ARQUIVO / 1024 / 1024)} MB`;
       continue;
     }
     const nome = nomeLivre(limparArquivo(arq.name));
-    linha.textContent = `Enviando ${nome} (${tamanho(arq.size)})…`;
-    const { error } = await supabase.storage.from(BUCKET).upload(`${pasta}/${nome}`, arq, {
-      contentType: arq.type || "application/octet-stream", upsert: false,
-    });
-    if (error) {
-      linha.className = "erro";
-      linha.textContent = `${nome} — ${error.message}`;
-    } else {
+    const rotulo = `Enviando ${nome} (${tamanho(arq.size)})`;
+    linha.textContent = rotulo + "…";
+    try {
+      await enviarUm(arq, nome, pct => { linha.textContent = `${rotulo} — ${pct}%`; });
       linha.className = "ok";
       linha.textContent = `${nome} enviado`;
       arquivos.push({ name: nome }); // evita nome repetido no mesmo lote
+    } catch (e) {
+      linha.className = "erro";
+      linha.textContent = `${nome} — ${e.message}`;
     }
   }
   await carregar();
-  setTimeout(() => { fila.innerHTML = ""; }, 4000);
+  setTimeout(() => { fila.querySelectorAll(".ok").forEach(l => l.remove()); }, 4000);
 }
 
 // ---------- início ----------
 pasta = lerPasta();
-if (pasta) {
+if (API.startsWith("COLE_AQUI")) {
+  app.innerHTML = `<div class="home"><div class="marca">Shino</div>
+    <p>Falta configurar: cole o endereço do Apps Script na linha <b>const API</b>, no começo do código.</p></div>`;
+} else if (pasta) {
   document.title = `${pasta} · Shino`;
   telaPasta();
 } else {

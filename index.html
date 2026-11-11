@@ -125,6 +125,17 @@
   }
   .info a:hover { text-decoration: underline; text-underline-offset: 3px; }
   .meta { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .previa {
+    margin-top: 6px; font-size: 13.5px; line-height: 1.5; color: var(--text); opacity: .85;
+    max-height: 4.5em; overflow: hidden;
+    word-break: break-word; white-space: pre-wrap; cursor: pointer;
+  }
+  .previa:empty { display: none; }
+  .info .previa a { display: inline; white-space: pre-wrap; overflow: visible; font-weight: 400; word-break: break-all; }
+  .item .ext { align-self: start; }
+  .info a:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; border-radius: 4px; }
+  .previa a, .visor pre a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+  .visor pre { white-space: pre-wrap; word-break: break-word; }
   .acts { display: flex; gap: 2px; }
   .vazio { padding: 40px 0; text-align: center; color: var(--muted); font-size: 14px; }
 
@@ -132,6 +143,16 @@
   .espaco:empty { display: none; }
   .medidor { height: 4px; border-radius: 4px; background: var(--soft); overflow: hidden; }
   .medidor i { display: block; height: 100%; background: var(--muted); border-radius: 4px; }
+  .msg {
+    display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start;
+    padding: 14px 2px; border-bottom: 1px solid var(--line);
+  }
+  .msg-corpo { min-width: 0; cursor: pointer; }
+  .msg .previa { margin: 0; max-height: 7.5em; opacity: 1; font-size: 15px; }
+  .msg .previa a { white-space: pre-wrap; word-break: break-all; }
+  .msg .meta { margin-top: 6px; }
+  .caixa .barra { justify-content: flex-end; }
+  .caixa .barra button { min-width: 120px; }
   /* ---------- tela inicial ---------- */
   .home { min-height: 72dvh; display: flex; flex-direction: column; justify-content: center; max-width: 420px; margin: 0 auto; }
   .home .marca { font-size: 44px; }
@@ -202,7 +223,7 @@
   <div class="visor">
     <div class="topo">
       <b id="visorNome"></b>
-      <button class="b-sec" id="visorCopiar">Copiar</button>
+      <button class="b-sec" id="visorCopiar">Copiar texto</button>
       <button class="b-ico" id="visorFechar" title="Fechar" aria-label="Fechar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
       </button>
@@ -210,7 +231,6 @@
     <pre id="visorTexto"></pre>
   </div>
 </div>
-<input type="file" id="seletor" multiple hidden>
 
 <script type="module">
 // =====================================================================
@@ -219,12 +239,8 @@
 const API = "https://script.google.com/macros/s/AKfycbxwtt1pQe2rdhVoCICCAkjjmg_74T2o11zcWHJvv1QtDFlZqbQH24Xm20wxgXejVnXr5A/exec";
 // =====================================================================
 
-let LIMITE_ARQUIVO = 500 * 1024 * 1024;   // atualizado pelo servidor
-const PEQUENO = 8 * 1024 * 1024;          // até isso vai numa chamada só
-const PARTE = 8 * 1024 * 1024;            // tamanho de cada parte dos arquivos grandes
 
 const app = document.getElementById("app");
-const seletor = document.getElementById("seletor");
 
 // ---------- comunicação com o Apps Script ----------
 async function api(dados, metodo = "GET") {
@@ -244,6 +260,8 @@ async function api(dados, metodo = "GET") {
 const linkVer = id => `https://drive.google.com/file/d/${id}/view`;
 const linkBaixar = id => `https://drive.google.com/uc?export=download&id=${id}`;
 const linkDaPasta = () => location.origin + basePath() + pasta;
+// Textos: o link leva para o próprio site (abre o texto na página). Outros arquivos: Drive.
+const linkDoArquivo = a => ehTexto(a) ? `${linkDaPasta()}#${a.id}` : linkVer(a.id);
 
 // ---------- ícones ----------
 const ic = p => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
@@ -329,12 +347,12 @@ function telaInicial() {
   app.innerHTML = `
     <div class="home">
       <div class="marca">Shino</div>
-      <p>Compartilhe arquivos e textos por link. Escolha um nome de pasta — quem tiver o link pode ver, baixar e enviar.</p>
+      <p>Guarde e compartilhe textos por link. Escolha um nome de pasta — quem tiver o link pode ler e escrever.</p>
       <div class="linha">
         <input id="nome" placeholder="nome-da-pasta" value="${sugestao}" autocomplete="off" autocapitalize="off" spellcheck="false">
         <button class="b-pri" id="ir">Abrir pasta</button>
       </div>
-      <p class="aviso">Pastas não têm senha: prefira nomes difíceis de adivinhar. Até ${Math.round(LIMITE_ARQUIVO / 1024 / 1024)} MB por arquivo.</p>
+      <p class="aviso">Pastas não têm senha: prefira nomes difíceis de adivinhar.</p>
       <p class="agradece">Agradecimento a um cannabico · <b>@cqcfoda</b></p>
     </div>`;
   const campo = document.getElementById("nome");
@@ -361,38 +379,24 @@ function telaPasta() {
       <button class="b-ico" id="copiarPasta" title="Copiar link desta pasta" aria-label="Copiar link desta pasta">${ICONE.link}</button>
     </header>
 
-    <div class="caixa" id="caixa">
-      <textarea id="textoConteudo" spellcheck="false" autocapitalize="off"
-        placeholder="Digite ou cole um texto aqui…&#10;ou arraste arquivos para esta caixa."></textarea>
-      <div class="solte">${ICONE.enviar} Solte para enviar</div>
+    <div class="caixa">
+      <textarea id="textoConteudo" spellcheck="false" placeholder="Escreva ou cole seu texto aqui…"></textarea>
       <div class="barra">
-        <input id="textoNome" placeholder="Nome do texto (opcional)" autocomplete="off" autocapitalize="off" spellcheck="false">
-        <button class="b-sec" id="adicionar">${ICONE.clipe}<span>Arquivos</span></button>
-        <button class="b-pri" id="salvarTexto">Salvar texto</button>
+        <button class="b-pri" id="salvarTexto">Salvar</button>
       </div>
     </div>
-    <div class="fila" id="fila"></div>
 
     <div class="lista-topo">
-      <b>Arquivos</b>
-      <span><span id="total"></span> <button class="b-ico" id="copiarTudo" title="Copiar todos os links" aria-label="Copiar todos os links" style="vertical-align:middle;margin-left:4px">${ICONE.copiar}</button></span>
+      <b>Textos</b>
+      <span id="total"></span>
     </div>
     <div class="lista" id="lista"><div class="vazio">Carregando…</div></div>
     <div class="espaco" id="espaco"></div>`;
 
-  document.getElementById("adicionar").onclick = () => seletor.click();
-  document.getElementById("copiarPasta").onclick = () => copiar(location.href, "Link da pasta copiado");
-  document.getElementById("copiarTudo").onclick = () => {
-    if (!arquivos.length) return toast("A pasta está vazia", "erro");
-    copiar(arquivos.map(a => linkVer(a.id)).join("\n"), "Links copiados");
-  };
-  seletor.onchange = () => { enviar([...seletor.files]); seletor.value = ""; };
+  document.getElementById("copiarPasta").onclick = () => copiar(location.href.split("#")[0], "Link da pasta copiado");
 
-  const caixa = document.getElementById("caixa");
-  const tNome = document.getElementById("textoNome");
   const tConteudo = document.getElementById("textoConteudo");
-
-  // Tab faz recuo de código; Ctrl+Enter salva
+  // Tab faz recuo; Ctrl+Enter salva
   tConteudo.addEventListener("keydown", e => {
     if (e.key === "Tab") {
       e.preventDefault();
@@ -401,43 +405,22 @@ function telaPasta() {
       e.preventDefault(); salvar();
     }
   });
-  // Colar uma imagem/arquivo (Ctrl+V de um print, por exemplo) envia direto
-  tConteudo.addEventListener("paste", e => {
-    const files = [...(e.clipboardData?.files || [])];
-    if (files.length) { e.preventDefault(); enviar(files); }
-  });
 
   async function salvar() {
     const conteudo = tConteudo.value;
-    if (!conteudo.trim()) { tConteudo.focus(); return toast("Digite ou cole algo antes de salvar", "erro"); }
-    let nome = tNome.value.trim();
-    if (!nome) {
-      const d = new Date(), p = n => String(n).padStart(2, "0");
-      nome = `texto_${p(d.getDate())}-${p(d.getMonth() + 1)}_${p(d.getHours())}h${p(d.getMinutes())}.txt`;
-    }
-    if (!/\.[A-Za-z0-9]{1,8}$/.test(nome)) nome += ".txt";
+    if (!conteudo.trim()) { tConteudo.focus(); return toast("Escreva algo antes de salvar", "erro"); }
     const botao = document.getElementById("salvarTexto");
     botao.disabled = true; botao.textContent = "Salvando…";
-    const ok = await enviarTexto(nome, conteudo);
-    botao.disabled = false; botao.textContent = "Salvar texto";
-    if (ok) { tNome.value = ""; tConteudo.value = ""; }
+    const ok = await enviarTexto(conteudo);
+    botao.disabled = false; botao.textContent = "Salvar";
+    if (ok) tConteudo.value = "";
   }
   document.getElementById("salvarTexto").onclick = salvar;
 
-  // Arrastar arquivos: soltar na caixa (ou em qualquer lugar da página)
-  let contador = 0;
-  const temArquivos = e => [...(e.dataTransfer?.types || [])].includes("Files");
-  document.addEventListener("dragenter", e => { if (!temArquivos(e)) return; e.preventDefault(); contador++; caixa.classList.add("on"); });
-  document.addEventListener("dragover", e => { if (temArquivos(e)) e.preventDefault(); });
-  document.addEventListener("dragleave", e => { if (!temArquivos(e)) return; if (--contador <= 0) { contador = 0; caixa.classList.remove("on"); } });
-  document.addEventListener("drop", e => {
-    if (!temArquivos(e)) return;
-    e.preventDefault(); contador = 0; caixa.classList.remove("on");
-    if (e.dataTransfer.files.length) enviar([...e.dataTransfer.files]);
-  });
-
   carregar(true);
 }
+
+const dataHora = iso => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 async function carregar(registrarAcesso = false) {
   const lista = document.getElementById("lista");
@@ -449,10 +432,8 @@ async function carregar(registrarAcesso = false) {
     return;
   }
   arquivos = r.arquivos || [];
-  if (r.limiteArquivo) LIMITE_ARQUIVO = r.limiteArquivo;
-  const soma = arquivos.reduce((s, a) => s + (a.size || 0), 0);
   document.getElementById("total").textContent =
-    arquivos.length ? `${arquivos.length} ${arquivos.length === 1 ? "item" : "itens"} · ${tamanho(soma)}` : "";
+    arquivos.length ? `${arquivos.length} ${arquivos.length === 1 ? "texto" : "textos"}` : "";
   if (r.limite) {
     const pct = Math.min(100, r.usado / r.limite * 100);
     document.getElementById("espaco").innerHTML =
@@ -461,34 +442,49 @@ async function carregar(registrarAcesso = false) {
   }
 
   if (!arquivos.length) {
-    lista.innerHTML = `<div class="vazio">Nada por aqui ainda.</div>`;
+    lista.innerHTML = `<div class="vazio">Nenhum texto ainda.</div>`;
     return;
   }
-  lista.innerHTML = arquivos.map((a, i) => `
-    <div class="item">
-      <div class="ext">${esc(extensao(a.name))}</div>
-      <div class="info">
-        <a href="${esc(linkVer(a.id))}" target="_blank" rel="noopener" title="${esc(a.name)}">${esc(a.name)}</a>
-        <div class="meta">${[tamanho(a.size), quando(a.created)].filter(Boolean).join(" · ")}</div>
+  lista.innerHTML = arquivos.map((a, i) => ehTexto(a) ? `
+    <div class="msg">
+      <div class="msg-corpo" data-abrir="${i}">
+        <div class="previa" data-previa="${esc(a.id)}">${a.size > PREVIA_MAX ? "Texto longo — abra para ler" : "…"}</div>
+        <div class="meta">${esc(quando(a.created))}${a.size > 2048 ? " · " + tamanho(a.size) : ""}</div>
       </div>
       <div class="acts">
-        ${ehTexto(a) ? `<button class="b-ico" data-ver="${i}" title="Ver conteúdo" aria-label="Ver conteúdo">${ICONE.ver}</button>` : ""}
+        <button class="b-ico" data-copiartexto="${i}" title="Copiar texto" aria-label="Copiar texto">${ICONE.copiar}</button>
         <button class="b-ico" data-copiar="${i}" title="Copiar link" aria-label="Copiar link">${ICONE.link}</button>
-        <button class="b-ico" data-baixar="${i}" title="Baixar" aria-label="Baixar">${ICONE.baixar}</button>
+        <button class="b-ico perigo" data-apagar="${i}" title="Apagar" aria-label="Apagar">${ICONE.apagar}</button>
+      </div>
+    </div>` : `
+    <div class="msg">
+      <div class="msg-corpo">
+        <div class="previa"><a href="${esc(linkVer(a.id))}" target="_blank" rel="noopener">${esc(a.name)}</a></div>
+        <div class="meta">${esc(quando(a.created))} · ${tamanho(a.size)}</div>
+      </div>
+      <div class="acts">
+        <button class="b-ico" data-copiar="${i}" title="Copiar link" aria-label="Copiar link">${ICONE.link}</button>
         <button class="b-ico perigo" data-apagar="${i}" title="Apagar" aria-label="Apagar">${ICONE.apagar}</button>
       </div>
     </div>`).join("");
 
-  lista.querySelectorAll("[data-ver]").forEach(b =>
-    b.onclick = () => verTexto(arquivos[b.dataset.ver]));
+  lista.querySelectorAll("[data-abrir]").forEach(el =>
+    el.onclick = e => {
+      if (e.target.closest("a")) return; // clicou num link dentro do texto
+      if (getSelection().toString()) return; // estava selecionando texto
+      verTexto(arquivos[el.dataset.abrir]);
+    });
+  lista.querySelectorAll("[data-copiartexto]").forEach(b =>
+    b.onclick = async () => {
+      try { copiar(await lerTexto(arquivos[b.dataset.copiartexto].id), "Texto copiado"); }
+      catch (e) { toast("Erro: " + e.message, "erro"); }
+    });
   lista.querySelectorAll("[data-copiar]").forEach(b =>
-    b.onclick = () => copiar(linkVer(arquivos[b.dataset.copiar].id), "Link copiado"));
-  lista.querySelectorAll("[data-baixar]").forEach(b =>
-    b.onclick = () => { location.href = linkBaixar(arquivos[b.dataset.baixar].id); });
+    b.onclick = () => copiar(linkDoArquivo(arquivos[b.dataset.copiar]), "Link copiado"));
   lista.querySelectorAll("[data-apagar]").forEach(b =>
     b.onclick = async () => {
       const a = arquivos[b.dataset.apagar];
-      if (!confirm(`Apagar "${a.name}"?`)) return;
+      if (!confirm("Apagar este texto?")) return;
       b.disabled = true;
       try {
         await api({ acao: "apagar", id: a.id, pasta }, "POST");
@@ -498,123 +494,82 @@ async function carregar(registrarAcesso = false) {
         toast("Erro ao apagar: " + e.message, "erro"); b.disabled = false;
       }
     });
+  carregarPrevias();
+  abrirPeloEndereco();
 }
 
 // ---------- textos ----------
+const PREVIA_MAX = 200 * 1024;
 const EXT_TEXTO = new Set(("txt md markdown log csv tsv json xml yml yaml ini cfg conf env " +
   "html htm css js mjs ts jsx tsx py java c h cpp cs go rs php rb lua sh bat ps1 sql kt swift vb gs").split(" "));
 function ehTexto(a) {
-  if ((a.size || 0) > 2 * 1024 * 1024) return false;
   const mime = a.mime || "";
   if (mime.startsWith("text/") || mime.includes("json") || mime.includes("xml")) return true;
   const i = a.name.lastIndexOf(".");
   return i > 0 && EXT_TEXTO.has(a.name.slice(i + 1).toLowerCase());
 }
-function mimeDoTexto(nome) {
-  const ext = nome.slice(nome.lastIndexOf(".") + 1).toLowerCase();
-  const m = { html: "text/html", htm: "text/html", css: "text/css", js: "text/javascript",
-              json: "application/json", xml: "text/xml", csv: "text/csv", md: "text/markdown" };
-  return m[ext] || "text/plain";
-}
 
-async function enviarTexto(nomeDigitado, conteudo) {
-  const nome = nomeLivre(limparArquivo(nomeDigitado));
+async function enviarTexto(conteudo) {
+  const d = new Date(), p = n => String(n).padStart(2, "0");
+  const nome = `texto_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.txt`;
   try {
-    await api({ acao: "texto", pasta, nome, mime: mimeDoTexto(nome), conteudo, link: linkDaPasta() }, "POST");
+    await api({ acao: "texto", pasta, nome, mime: "text/plain", conteudo, link: linkDaPasta() }, "POST");
   } catch (e) {
     toast("Erro ao salvar: " + e.message, "erro");
     return false;
   }
-  toast(`${nome} salvo`);
+  toast("Salvo");
   await carregar();
   return true;
 }
 
+const textos = {}; // conteúdo já carregado, por id
+function comLinks(texto) {
+  return esc(texto).replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g,
+    u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+}
+async function lerTexto(id) {
+  if (!(id in textos)) textos[id] = (await api({ acao: "ler", id })).texto;
+  return textos[id];
+}
+async function carregarPrevias() {
+  const alvos = [...document.querySelectorAll("[data-previa]")].slice(0, 40);
+  await Promise.all(alvos.map(async el => {
+    const a = arquivos.find(x => x.id === el.dataset.previa);
+    if (!a || a.size > PREVIA_MAX) return;
+    try { el.innerHTML = comLinks((await lerTexto(a.id)).slice(0, 600)); }
+    catch { el.textContent = "Não foi possível carregar"; }
+  }));
+}
+function abrirPeloEndereco() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (!id || !document.getElementById("fundo").hidden) return;
+  const a = arquivos.find(x => x.id === id);
+  if (a && ehTexto(a)) verTexto(a);
+}
 async function verTexto(a) {
+  if (location.hash.slice(1) !== a.id) history.replaceState(null, "", "#" + a.id);
   const fundo = document.getElementById("fundo");
   const pre = document.getElementById("visorTexto");
-  document.getElementById("visorNome").textContent = a.name;
+  document.getElementById("visorNome").textContent = dataHora(a.created);
   pre.textContent = "Carregando…";
   fundo.hidden = false;
   document.body.style.overflow = "hidden";
   try {
-    const { texto } = await api({ acao: "ler", id: a.id });
-    pre.textContent = texto;
-    document.getElementById("visorCopiar").onclick = () => copiar(texto);
+    const texto = await lerTexto(a.id);
+    pre.innerHTML = comLinks(texto);
+    document.getElementById("visorCopiar").onclick = () => copiar(texto, "Texto copiado");
   } catch (e) {
     pre.textContent = "Erro ao abrir: " + e.message;
   }
 }
-function fecharVisor() { document.getElementById("fundo").hidden = true; document.body.style.overflow = ""; }
+function fecharVisor() {
+  document.getElementById("fundo").hidden = true; document.body.style.overflow = "";
+  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+}
 document.getElementById("visorFechar").onclick = fecharVisor;
 document.getElementById("fundo").onclick = e => { if (e.target.id === "fundo") fecharVisor(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape") fecharVisor(); });
-
-// ---------- envio de arquivos ----------
-function nomeLivre(nome) {
-  const existentes = new Set(arquivos.map(a => a.name));
-  if (!existentes.has(nome)) return nome;
-  const i = nome.lastIndexOf(".");
-  const base = i > 0 ? nome.slice(0, i) : nome;
-  const ext = i > 0 ? nome.slice(i) : "";
-  let n = 2;
-  while (existentes.has(`${base}_${n}${ext}`)) n++;
-  return `${base}_${n}${ext}`;
-}
-
-async function enviarUm(arq, nome, aoProgredir) {
-  const mime = arq.type || "application/octet-stream";
-  const link = linkDaPasta();
-  if (arq.size <= PEQUENO) {
-    const dados = await paraBase64(arq);
-    aoProgredir(50);
-    await api({ acao: "upload", pasta, nome, mime, dados, link }, "POST");
-    return;
-  }
-  const { sessao } = await api({ acao: "iniciar", pasta, nome, mime, tamanho: arq.size }, "POST");
-  for (let inicio = 0; inicio < arq.size; inicio += PARTE) {
-    const pedaco = arq.slice(inicio, Math.min(inicio + PARTE, arq.size));
-    const dados = await paraBase64(pedaco);
-    let tentativas = 0;
-    for (;;) {
-      try {
-        await api({ acao: "parte", pasta, sessao, inicio, total: arq.size, dados, link }, "POST");
-        break;
-      } catch (e) {
-        if (++tentativas >= 3) throw e;
-        await new Promise(r => setTimeout(r, 1500 * tentativas));
-      }
-    }
-    aoProgredir(Math.round(Math.min(inicio + PARTE, arq.size) / arq.size * 100));
-  }
-}
-
-async function enviar(lista) {
-  const fila = document.getElementById("fila");
-  for (const arq of lista) {
-    const linha = document.createElement("div");
-    fila.prepend(linha);
-    if (arq.size > LIMITE_ARQUIVO) {
-      linha.className = "erro";
-      linha.textContent = `${arq.name} — maior que ${Math.round(LIMITE_ARQUIVO / 1024 / 1024)} MB`;
-      continue;
-    }
-    const nome = nomeLivre(limparArquivo(arq.name));
-    const rotulo = `Enviando ${nome} (${tamanho(arq.size)})`;
-    linha.textContent = rotulo + "…";
-    try {
-      await enviarUm(arq, nome, pct => { linha.textContent = `${rotulo} — ${pct}%`; });
-      linha.className = "ok";
-      linha.textContent = `${nome} enviado`;
-      arquivos.push({ name: nome }); // evita nome repetido no mesmo lote
-    } catch (e) {
-      linha.className = "erro";
-      linha.textContent = `${nome} — ${e.message}`;
-    }
-  }
-  await carregar();
-  setTimeout(() => { fila.querySelectorAll(".ok").forEach(l => l.remove()); }, 4000);
-}
 
 // ---------- início ----------
 pasta = lerPasta();

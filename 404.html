@@ -153,6 +153,13 @@
   .msg .meta { margin-top: 6px; }
   .caixa .barra { justify-content: flex-end; }
   .caixa .barra button { min-width: 120px; }
+  .validade {
+    font-size: 12px; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 999px;
+    padding: 4px 10px; white-space: nowrap; cursor: default;
+  }
+  .validade[hidden] { display: none; }
+  .validade.fim { color: var(--danger); border-color: currentColor; }
+  .vazio small { display: block; margin-top: 6px; font-size: 12.5px; }
   /* ---------- tela inicial ---------- */
   .home { min-height: 72dvh; display: flex; flex-direction: column; justify-content: center; max-width: 420px; margin: 0 auto; }
   .home .marca { font-size: 44px; }
@@ -352,7 +359,7 @@ function telaInicial() {
         <input id="nome" placeholder="nome-da-pasta" value="${sugestao}" autocomplete="off" autocapitalize="off" spellcheck="false">
         <button class="b-pri" id="ir">Abrir pasta</button>
       </div>
-      <p class="aviso">Pastas não têm senha: prefira nomes difíceis de adivinhar.</p>
+      <p class="aviso">Os textos ficam guardados por 30 dias. Pastas não têm senha: prefira nomes difíceis de adivinhar.</p>
       <p class="agradece">Agradecimento a um cannabico · <b>@cqcfoda</b></p>
     </div>`;
   const campo = document.getElementById("nome");
@@ -376,6 +383,7 @@ function telaPasta() {
         <a href="${basePath()}" class="marca">Shino</a>
         <span class="pasta">/ <b>${esc(pasta)}</b></span>
       </div>
+      <span class="validade" id="validade" hidden></span>
       <button class="b-ico" id="copiarPasta" title="Copiar link desta pasta" aria-label="Copiar link desta pasta">${ICONE.link}</button>
     </header>
 
@@ -390,8 +398,7 @@ function telaPasta() {
       <b>Textos</b>
       <span id="total"></span>
     </div>
-    <div class="lista" id="lista"><div class="vazio">Carregando…</div></div>
-    <div class="espaco" id="espaco"></div>`;
+    <div class="lista" id="lista"><div class="vazio">Carregando…</div></div>`;
 
   document.getElementById("copiarPasta").onclick = () => copiar(location.href.split("#")[0], "Link da pasta copiado");
 
@@ -434,15 +441,10 @@ async function carregar(registrarAcesso = false) {
   arquivos = r.arquivos || [];
   document.getElementById("total").textContent =
     arquivos.length ? `${arquivos.length} ${arquivos.length === 1 ? "texto" : "textos"}` : "";
-  if (r.limite) {
-    const pct = Math.min(100, r.usado / r.limite * 100);
-    document.getElementById("espaco").innerHTML =
-      `<div class="medidor"><i style="width:${pct.toFixed(1)}%"></i></div>
-       <span>Espaço do Shino: ${tamanho(r.usado)} de ${tamanho(r.limite)}</span>`;
-  }
+  mostrarValidade(r.expira, r.dias || 30);
 
   if (!arquivos.length) {
-    lista.innerHTML = `<div class="vazio">Nenhum texto ainda.</div>`;
+    lista.innerHTML = `<div class="vazio">Nenhum texto ainda.<br><small>Esta página fica disponível por ${r.dias || 30} dias a partir do primeiro texto salvo.</small></div>`;
     return;
   }
   lista.innerHTML = arquivos.map((a, i) => ehTexto(a) ? `
@@ -496,6 +498,16 @@ async function carregar(registrarAcesso = false) {
     });
   carregarPrevias();
   abrirPeloEndereco();
+}
+
+function mostrarValidade(expira, dias) {
+  const el = document.getElementById("validade");
+  if (!expira) { el.hidden = true; return; }
+  const restam = Math.max(0, Math.ceil((new Date(expira) - Date.now()) / 86400000));
+  el.textContent = restam > 1 ? `${restam} dias restantes` : restam === 1 ? "1 dia restante" : "Expira hoje";
+  el.title = `Esta página e seus textos serão apagados em ${dataHora(expira)}`;
+  el.classList.toggle("fim", restam <= 3);
+  el.hidden = false;
 }
 
 // ---------- textos ----------

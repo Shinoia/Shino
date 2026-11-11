@@ -25,6 +25,7 @@
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; }
+  body { position: relative; }
   body {
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     background: var(--bg); color: var(--text); min-height: 100dvh;
@@ -160,6 +161,10 @@
   .validade[hidden] { display: none; }
   .validade.fim { color: var(--danger); border-color: currentColor; }
   .vazio small { display: block; margin-top: 6px; font-size: 12.5px; }
+  .rodape {
+    position: absolute; left: 0; right: 0; bottom: max(22px, env(safe-area-inset-bottom));
+    text-align: center; font-size: 13px; color: var(--muted); letter-spacing: .01em;
+  }
   /* ---------- tela inicial ---------- */
   .home { min-height: 72dvh; display: flex; flex-direction: column; justify-content: center; max-width: 420px; margin: 0 auto; }
   .home .marca { font-size: 44px; }
@@ -360,8 +365,8 @@ function telaInicial() {
         <button class="b-pri" id="ir">Abrir pasta</button>
       </div>
       <p class="aviso">Os textos ficam guardados por 30 dias. Pastas não têm senha: prefira nomes difíceis de adivinhar.</p>
-      <p class="agradece">Agradecimento a um cannabico · <b>@cqcfoda</b></p>
-    </div>`;
+    </div>
+    <footer class="rodape">@cqcfoda</footer>`;
   const campo = document.getElementById("nome");
   const ir = () => {
     const p = limparPasta(campo.value);

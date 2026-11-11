@@ -135,6 +135,11 @@
   .linha { display: flex; gap: 8px; }
   .linha input { flex: 1; min-width: 0; }
   .aviso { font-size: 13px !important; margin-top: 18px !important; }
+  .agradece {
+    font-size: 12.5px !important; margin: 26px 0 0 !important; padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+  .agradece b { color: var(--text); font-weight: 550; }
 
   /* ---------- visualizador ---------- */
   .fundo {
@@ -305,6 +310,7 @@ function telaInicial() {
         <button class="b-pri" id="ir">Abrir pasta</button>
       </div>
       <p class="aviso">Pastas não têm senha: prefira nomes difíceis de adivinhar. Até ${LIMITE_MB} MB por arquivo.</p>
+      <p class="agradece">Agradecimento a um cannabico · <b>@cqcfoda</b></p>
     </div>`;
   const campo = document.getElementById("nome");
   const ir = () => {

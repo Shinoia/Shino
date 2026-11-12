@@ -355,7 +355,10 @@ function paraBase64(blob) {
 
 // ---------- tela inicial (sem pasta) ----------
 function telaInicial() {
-  const sugestao = Math.random().toString(36).slice(2, 8) + "-" + Math.random().toString(36).slice(2, 6);
+  // Sugestão aleatória: sempre termina em letra (nomes terminados em 4 números são permanentes)
+  const letras = "abcdefghijkmnpqrstuvwxyz";
+  const sugestao = Math.random().toString(36).slice(2, 8) + "-" + Math.random().toString(36).slice(2, 5) +
+    letras[Math.floor(Math.random() * letras.length)];
   app.innerHTML = `
     <div class="home">
       <div class="marca">Shino</div>
@@ -446,10 +449,11 @@ async function carregar(registrarAcesso = false) {
   arquivos = r.arquivos || [];
   document.getElementById("total").textContent =
     arquivos.length ? `${arquivos.length} ${arquivos.length === 1 ? "texto" : "textos"}` : "";
-  mostrarValidade(r.expira, r.dias || 30);
+  mostrarValidade(r.expira, r.permanente);
 
   if (!arquivos.length) {
-    lista.innerHTML = `<div class="vazio">Nenhum texto ainda.<br><small>Esta página fica disponível por ${r.dias || 30} dias a partir do primeiro texto salvo.</small></div>`;
+    lista.innerHTML = `<div class="vazio">Nenhum texto ainda.${r.permanente ? "" :
+      `<br><small>Esta página fica disponível por ${r.dias || 30} dias a partir do primeiro texto salvo.</small>`}</div>`;
     return;
   }
   lista.innerHTML = arquivos.map((a, i) => ehTexto(a) ? `
@@ -505,8 +509,15 @@ async function carregar(registrarAcesso = false) {
   abrirPeloEndereco();
 }
 
-function mostrarValidade(expira, dias) {
+function mostrarValidade(expira, permanente) {
   const el = document.getElementById("validade");
+  if (permanente) {
+    el.textContent = "Permanente";
+    el.title = "Os textos desta página não expiram";
+    el.classList.remove("fim");
+    el.hidden = false;
+    return;
+  }
   if (!expira) { el.hidden = true; return; }
   const restam = Math.max(0, Math.ceil((new Date(expira) - Date.now()) / 86400000));
   el.textContent = restam > 1 ? `${restam} dias restantes` : restam === 1 ? "1 dia restante" : "Expira hoje";

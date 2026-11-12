@@ -269,6 +269,14 @@ async function api(dados, metodo = "GET") {
   if (!json.ok) throw new Error(json.erro || "Erro desconhecido");
   return json;
 }
+// Primeira vez neste navegador = "nova"; F5 ou volta = "repetida"
+const VISITA = (() => {
+  try {
+    if (localStorage.getItem("shino_visitou")) return "repetida";
+    localStorage.setItem("shino_visitou", "1");
+  } catch {}
+  return "nova";
+})();
 const linkVer = id => `https://drive.google.com/file/d/${id}/view`;
 const linkBaixar = id => `https://drive.google.com/uc?export=download&id=${id}`;
 const linkDaPasta = () => location.origin + basePath() + pasta;
@@ -378,7 +386,7 @@ function telaInicial() {
   document.getElementById("ir").onclick = ir;
   campo.onkeydown = e => { if (e.key === "Enter") ir(); };
   if (matchMedia("(min-width: 601px)").matches) campo.select();
-  api({ acao: "contador" }).then(r => {
+  api({ acao: "contador", visita: VISITA }).then(r => {
     document.getElementById("usuarios").textContent = ` · ${Number(r.usuarios).toLocaleString("pt-BR")} usuários`;
   }).catch(() => {});
 }
@@ -444,7 +452,7 @@ async function carregar(registrarAcesso = false) {
   const lista = document.getElementById("lista");
   let r;
   try {
-    r = await api({ acao: "listar", pasta, registrar: registrarAcesso ? "1" : "0", link: linkDaPasta() });
+    r = await api({ acao: "listar", pasta, registrar: registrarAcesso ? "1" : "0", visita: VISITA, link: linkDaPasta() });
   } catch (e) {
     lista.innerHTML = `<div class="vazio">Erro ao carregar: ${esc(e.message)}</div>`;
     return;

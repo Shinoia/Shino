@@ -369,7 +369,7 @@ function telaInicial() {
       </div>
       <p class="aviso">Os textos ficam guardados por 30 dias. Pastas não têm senha: prefira nomes difíceis de adivinhar.</p>
     </div>
-    <footer class="rodape">@cqcfoda</footer>`;
+    <footer class="rodape">@cqcfoda<span id="usuarios"></span></footer>`;
   const campo = document.getElementById("nome");
   const ir = () => {
     const p = limparPasta(campo.value);
@@ -378,6 +378,9 @@ function telaInicial() {
   document.getElementById("ir").onclick = ir;
   campo.onkeydown = e => { if (e.key === "Enter") ir(); };
   if (matchMedia("(min-width: 601px)").matches) campo.select();
+  api({ acao: "contador" }).then(r => {
+    document.getElementById("usuarios").textContent = ` · ${Number(r.usuarios).toLocaleString("pt-BR")} usuários`;
+  }).catch(() => {});
 }
 
 // ---------- tela da pasta ----------
